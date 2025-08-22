@@ -24,6 +24,8 @@ class AnimeAPITester:
                 response = requests.get(url, headers=headers, params=params, timeout=30)
             elif method == 'POST':
                 response = requests.post(url, json=data, headers=headers, timeout=30)
+            elif method == 'DELETE':
+                response = requests.delete(url, headers=headers, timeout=30)
 
             print(f"   Status Code: {response.status_code}")
             
@@ -43,6 +45,12 @@ class AnimeAPITester:
                                 print(f"   Sample title: {first_item.get('title', 'N/A')}")
                         elif 'total' in json_data:
                             print(f"   Total items: {json_data['total']}")
+                        elif 'genres' in json_data:
+                            print(f"   Genres count: {len(json_data['genres'])}")
+                        elif 'message' in json_data:
+                            print(f"   Message: {json_data['message']}")
+                        elif 'id' in json_data:
+                            print(f"   Created ID: {json_data['id']}")
                     return True, json_data
                 except json.JSONDecodeError:
                     print(f"   Response: {response.text[:200]}...")
