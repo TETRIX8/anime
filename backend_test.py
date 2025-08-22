@@ -125,6 +125,66 @@ class AnimeAPITester:
         }
         return self.run_test("Anime List (Anime Kind Filter)", "GET", "anime/list", 200, params=params)
 
+    # NEW ENDPOINTS TESTING
+    def test_anime_search_corrected(self):
+        """Test corrected anime search endpoint with title parameter"""
+        params = {"title": "Наруто", "limit": 10}
+        return self.run_test("Anime Search (Corrected)", "GET", "anime/search", 200, params=params)
+
+    def test_anime_genres(self):
+        """Test anime genres endpoint"""
+        return self.run_test("Anime Genres", "GET", "anime/genres", 200)
+
+    def test_anime_details(self):
+        """Test anime details endpoint - first get an anime ID, then test details"""
+        # First get an anime list to get a valid ID
+        success, data = self.run_test("Get Anime for Details Test", "GET", "anime/list", 200, params={"limit": 1})
+        if success and data.get('results'):
+            anime_id = data['results'][0]['id']
+            return self.run_test("Anime Details", "GET", f"anime/{anime_id}", 200)
+        else:
+            print("❌ Could not get anime ID for details test")
+            return False, {}
+
+    def test_add_to_history(self):
+        """Test adding item to watch history"""
+        data = {
+            "user_id": "test_user",
+            "anime_id": "test_anime_123",
+            "anime_title": "Test Anime",
+            "anime_image": "https://example.com/image.jpg",
+            "progress": 0,
+            "season": 1,
+            "episode": 1
+        }
+        return self.run_test("Add to History", "POST", "history", 200, data=data)
+
+    def test_get_user_history(self):
+        """Test getting user history"""
+        return self.run_test("Get User History", "GET", "history/test_user", 200, params={"limit": 10})
+
+    def test_add_to_favorites(self):
+        """Test adding item to favorites"""
+        data = {
+            "user_id": "test_user",
+            "anime_id": "test_anime_fav_123",
+            "anime_title": "Test Favorite Anime",
+            "anime_image": "https://example.com/image.jpg"
+        }
+        return self.run_test("Add to Favorites", "POST", "favorites", 200, data=data)
+
+    def test_get_user_favorites(self):
+        """Test getting user favorites"""
+        return self.run_test("Get User Favorites", "GET", "favorites/test_user", 200, params={"limit": 10})
+
+    def test_remove_from_favorites(self):
+        """Test removing item from favorites"""
+        return self.run_test("Remove from Favorites", "DELETE", "favorites/test_user/test_anime_fav_123", 200)
+
+    def test_remove_from_history(self):
+        """Test removing item from history"""
+        return self.run_test("Remove from History", "DELETE", "history/test_user/test_anime_123", 200)
+
 def main():
     print("🚀 Starting AnimeWave API Testing...")
     print("=" * 50)
