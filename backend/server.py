@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
+from collections import defaultdict
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -30,6 +31,11 @@ app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 # Pydantic models
+class Translation(BaseModel):
+    id: int
+    title: str
+    type: str
+
 class AnimeItem(BaseModel):
     id: str
     type: str
@@ -37,7 +43,8 @@ class AnimeItem(BaseModel):
     title: str
     title_orig: Optional[str] = None
     other_title: Optional[str] = None
-    translation: Optional[Dict[str, Any]] = None
+    translation: Optional[Translation] = None
+    translations: Optional[List[Translation]] = []  # Добавляем список всех озвучек
     year: Optional[int] = None
     last_season: Optional[int] = None
     last_episode: Optional[int] = None
@@ -100,6 +107,49 @@ def prepare_for_mongo(data):
                 data[key] = value.isoformat()
     return data
 
+def group_anime_by_title(raw_results: List[Dict]) -> List[Dict]:
+    """Группирует аниме по названию и собирает все озвучки в один элемент"""
+    grouped = defaultdict(lambda: {
+        'translations': [],
+        'links': {},  # словарь translation_id -> link
+        'item': None
+    })
+    
+    for item in raw_results:
+        # Используем комбинацию title + year как уникальный ключ
+        key = f"{item.get('title', '')}__{item.get('year', 'unknown')}"
+        
+        if grouped[key]['item'] is None:
+            # Первый элемент для этого аниме - используем как основу
+            grouped[key]['item'] = item.copy()
+        
+        # Добавляем перевод в список
+        if item.get('translation'):
+            translation = item['translation']
+            # Проверяем что такого перевода еще нет
+            existing_translation_ids = [t['id'] for t in grouped[key]['translations']]
+            if translation['id'] not in existing_translation_ids:
+                grouped[key]['translations'].append(translation)
+                grouped[key]['links'][str(translation['id'])] = item.get('link', '')
+    
+    # Формируем финальный список
+    result = []
+    for group_data in grouped.values():
+        item = group_data['item']
+        if item:
+            # Добавляем список всех переводов
+            item['translations'] = group_data['translations']
+            item['translation_links'] = group_data['links']
+            
+            # Основной перевод остается первым в списке
+            if group_data['translations']:
+                item['translation'] = group_data['translations'][0]
+                item['link'] = group_data['links'].get(str(group_data['translations'][0]['id']), item.get('link', ''))
+            
+            result.append(item)
+    
+    return result
+
 # API endpoints
 @api_router.get("/")
 async def root():
@@ -120,12 +170,15 @@ async def get_anime_list(
     with_episodes_data: bool = Query(False),
     next_token: Optional[str] = Query(None, alias="next")
 ):
-    """Получить список аниме с Kodik API"""
+    """Получить список аниме с Kodik API с группировкой дубликатов"""
     try:
+        # Увеличиваем лимит для получения большего количества данных перед группировкой
+        api_limit = min(limit * 3, 100)  # Получаем в 3 раза больше для группировки
+        
         # Построить параметры запроса
         params = {
             "token": KODIK_TOKEN,
-            "limit": limit,
+            "limit": api_limit,
             "sort": sort,
             "order": order,
             "with_material_data": with_material_data,
@@ -153,7 +206,20 @@ async def get_anime_list(
             response.raise_for_status()
             data = response.json()
             
-            return AnimeListResponse(**data)
+            # Группируем аниме по названию
+            grouped_results = group_anime_by_title(data.get("results", []))
+            
+            # Ограничиваем результат запрошенным лимитом
+            limited_results = grouped_results[:limit]
+            
+            # Формируем ответ
+            return AnimeListResponse(
+                time=data.get("time", "0ms"),
+                total=len(grouped_results),
+                prev_page=data.get("prev_page"),
+                next_page=data.get("next_page"),
+                results=limited_results
+            )
             
     except httpx.HTTPError as e:
         raise HTTPException(status_code=500, detail=f"Ошибка запроса к Kodik API: {str(e)}")
@@ -170,12 +236,15 @@ async def search_anime(
     anime_kind: Optional[str] = Query(None),
     with_material_data: bool = Query(True)
 ):
-    """Поиск аниме по названию через Kodik search API"""
+    """Поиск аниме по названию с группировкой дубликатов"""
     try:
+        # Увеличиваем лимит для группировки
+        api_limit = min(limit * 3, 100)
+        
         params = {
             "token": KODIK_TOKEN,
             "title": query,
-            "limit": limit,
+            "limit": api_limit,
             "sort": sort,
             "order": order,
             "with_material_data": with_material_data
@@ -191,7 +260,19 @@ async def search_anime(
             response.raise_for_status()
             data = response.json()
             
-            return AnimeListResponse(**data)
+            # Группируем результаты поиска
+            grouped_results = group_anime_by_title(data.get("results", []))
+            
+            # Ограничиваем результат
+            limited_results = grouped_results[:limit]
+            
+            return AnimeListResponse(
+                time=data.get("time", "0ms"),
+                total=len(grouped_results),
+                prev_page=data.get("prev_page"),
+                next_page=data.get("next_page"),
+                results=limited_results
+            )
             
     except httpx.HTTPError as e:
         raise HTTPException(status_code=500, detail=f"Ошибка поиска: {str(e)}")
@@ -202,11 +283,14 @@ async def search_anime(
 async def get_recent_anime(
     limit: int = Query(12, ge=1, le=50)
 ):
-    """Получить недавние новинки"""
+    """Получить недавние новинки с группировкой"""
     try:
+        # Увеличиваем лимит для группировки
+        api_limit = min(limit * 2, 50)
+        
         params = {
             "token": KODIK_TOKEN,
-            "limit": limit,
+            "limit": api_limit,
             "sort": "updated_at",
             "order": "desc",
             "with_material_data": True,
@@ -218,7 +302,13 @@ async def get_recent_anime(
             response.raise_for_status()
             data = response.json()
             
-            return {"results": data.get("results", [])}
+            # Группируем новинки
+            grouped_results = group_anime_by_title(data.get("results", []))
+            
+            # Ограничиваем результат
+            limited_results = grouped_results[:limit]
+            
+            return {"results": limited_results}
             
     except httpx.HTTPError as e:
         raise HTTPException(status_code=500, detail=f"Ошибка получения новинок: {str(e)}")
@@ -227,7 +317,7 @@ async def get_recent_anime(
 
 @api_router.get("/anime/{anime_id}")
 async def get_anime_details(anime_id: str):
-    """Получить детальную информацию об аниме"""
+    """Получить детальную информацию об аниме со всеми доступными озвучками"""
     try:
         params = {
             "token": KODIK_TOKEN,
@@ -242,7 +332,30 @@ async def get_anime_details(anime_id: str):
             data = response.json()
             
             if data.get("results"):
-                return data["results"][0]
+                base_anime = data["results"][0]
+                
+                # Ищем все озвучки для этого аниме по названию
+                search_params = {
+                    "token": KODIK_TOKEN,
+                    "title": base_anime.get("title", ""),
+                    "limit": 50,
+                    "with_material_data": True
+                }
+                
+                search_response = await client.get(f"{KODIK_API_URL}/search", params=search_params)
+                search_data = search_response.json()
+                
+                # Группируем все найденные варианты
+                all_variants = search_data.get("results", [])
+                grouped = group_anime_by_title(all_variants)
+                
+                # Находим нужный элемент
+                for anime in grouped:
+                    if anime.get("id") == anime_id or anime.get("title") == base_anime.get("title"):
+                        return anime
+                
+                # Если не найден в группированных, возвращаем оригинальный
+                return base_anime
             else:
                 raise HTTPException(status_code=404, detail="Аниме не найдено")
             

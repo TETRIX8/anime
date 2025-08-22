@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import "./App.css";
 import { BrowserRouter, Routes, Route, useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
-import { Search, Play, Star, Calendar, Clock, Filter, ChevronDown, ChevronUp, Heart, History, Home, ArrowLeft, BookOpen, Tv, Film } from "lucide-react";
+import { Search, Play, Star, Calendar, Clock, Filter, ChevronDown, ChevronUp, Heart, History, Home, ArrowLeft, BookOpen, Tv, Film, Volume2 } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
@@ -181,6 +181,7 @@ const HomePage = () => {
 
   const AnimeCard = ({ anime, showFavoriteButton = true }) => {
     const isFavorite = favorites.some(fav => fav.anime_id === anime.id);
+    const translationsCount = anime.translations ? anime.translations.length : 1;
     
     return (
       <Card className="anime-card group relative overflow-hidden bg-gradient-to-br from-slate-900/90 via-purple-900/20 to-pink-900/20 border-slate-700/50 hover:border-purple-500/50 transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-purple-500/25">
@@ -195,6 +196,14 @@ const HomePage = () => {
               onError={(e) => { e.target.style.display = 'none' }}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+            
+            {/* Индикатор количества озвучек */}
+            {translationsCount > 1 && (
+              <div className="absolute top-3 left-3 bg-blue-600/80 backdrop-blur-sm text-white text-xs px-2 py-1 rounded-full flex items-center">
+                <Volume2 className="w-3 h-3 mr-1" />
+                {translationsCount}
+              </div>
+            )}
             
             <div className="absolute top-3 right-3 flex space-x-2">
               {showFavoriteButton && (
@@ -260,6 +269,9 @@ const HomePage = () => {
             <div className="flex items-center gap-2 text-slate-400 text-xs">
               <span className="text-amber-400">🎤</span>
               {anime.translation.title}
+              {translationsCount > 1 && (
+                <span className="text-blue-400">+{translationsCount - 1}</span>
+              )}
             </div>
           )}
           
@@ -573,6 +585,7 @@ const WatchPage = () => {
   const [anime, setAnime] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [selectedTranslation, setSelectedTranslation] = useState(null);
 
   useEffect(() => {
     loadAnimeDetails();
@@ -582,13 +595,35 @@ const WatchPage = () => {
     try {
       setLoading(true);
       const response = await axios.get(`${API}/anime/${animeId}`);
-      setAnime(response.data);
+      const animeData = response.data;
+      setAnime(animeData);
+      
+      // Устанавливаем первую озвучку как выбранную по умолчанию
+      if (animeData.translations && animeData.translations.length > 0) {
+        setSelectedTranslation(animeData.translations[0]);
+      } else if (animeData.translation) {
+        setSelectedTranslation(animeData.translation);
+      }
     } catch (error) {
       console.error("Ошибка загрузки деталей аниме:", error);
       setError("Не удалось загрузить аниме");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleTranslationChange = (translation) => {
+    setSelectedTranslation(translation);
+  };
+
+  const getCurrentLink = () => {
+    if (!anime) return "";
+    
+    if (selectedTranslation && anime.translation_links) {
+      return anime.translation_links[selectedTranslation.id.toString()] || anime.link;
+    }
+    
+    return anime.link;
   };
 
   if (loading) {
@@ -634,7 +669,30 @@ const WatchPage = () => {
             {anime.title}
           </h1>
           
-          <div className="w-20" /> {/* Spacer */}
+          {/* Выбор озвучки */}
+          {anime.translations && anime.translations.length > 1 && (
+            <div className="flex items-center space-x-2">
+              <Volume2 className="w-4 h-4 text-slate-400" />
+              <Select 
+                value={selectedTranslation?.id.toString()} 
+                onValueChange={(value) => {
+                  const translation = anime.translations.find(t => t.id.toString() === value);
+                  if (translation) handleTranslationChange(translation);
+                }}
+              >
+                <SelectTrigger className="w-40 bg-slate-800 border-slate-700 text-white">
+                  <SelectValue placeholder="Озвучка" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  {anime.translations.map((translation) => (
+                    <SelectItem key={translation.id} value={translation.id.toString()}>
+                      {translation.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
       </header>
 
@@ -642,7 +700,7 @@ const WatchPage = () => {
       <div className="container mx-auto px-4 py-6">
         <div className="aspect-video bg-black rounded-lg overflow-hidden mb-6">
           <iframe
-            src={anime.link}
+            src={getCurrentLink()}
             width="100%"
             height="100%"
             frameBorder="0"
@@ -702,12 +760,30 @@ const WatchPage = () => {
               )}
             </div>
 
-            {anime.translation && (
+            {/* Доступные озвучки */}
+            {anime.translations && anime.translations.length > 0 && (
               <div className="bg-slate-800/50 rounded-lg p-4">
-                <h3 className="text-white font-semibold mb-2">Озвучка</h3>
-                <p className="text-slate-300">
-                  {anime.translation.title} ({anime.translation.type})
-                </p>
+                <h3 className="text-white font-semibold mb-2 flex items-center">
+                  <Volume2 className="w-4 h-4 mr-2" />
+                  Доступные озвучки ({anime.translations.length})
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {anime.translations.map((translation) => (
+                    <Button
+                      key={translation.id}
+                      variant={selectedTranslation?.id === translation.id ? "default" : "outline"}
+                      size="sm"
+                      className={`text-xs ${
+                        selectedTranslation?.id === translation.id 
+                          ? "bg-purple-600 hover:bg-purple-500" 
+                          : "border-slate-600 text-slate-300 hover:bg-slate-700"
+                      }`}
+                      onClick={() => handleTranslationChange(translation)}
+                    >
+                      {translation.title}
+                    </Button>
+                  ))}
+                </div>
               </div>
             )}
 
