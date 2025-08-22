@@ -95,7 +95,7 @@ class AnimeAPITester:
     def test_anime_search(self):
         """Test anime search"""
         params = {
-            "query": "Naruto",
+            "title": "Naruto",
             "limit": 10
         }
         return self.run_test("Anime Search", "GET", "anime/search", 200, params=params)
