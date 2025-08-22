@@ -210,6 +210,23 @@ def main():
     tester.test_anime_list_with_filters()
     tester.test_anime_search()
     
+    # NEW: Test corrected search endpoint
+    tester.test_anime_search_corrected()
+    
+    # NEW: Test genres endpoint
+    tester.test_anime_genres()
+    
+    # NEW: Test anime details endpoint
+    tester.test_anime_details()
+    
+    # NEW: Test history functionality
+    tester.test_add_to_history()
+    tester.test_get_user_history()
+    
+    # NEW: Test favorites functionality
+    tester.test_add_to_favorites()
+    tester.test_get_user_favorites()
+    
     # Edge case tests
     tester.test_anime_search_empty_query()
     tester.test_anime_list_invalid_sort()
@@ -217,6 +234,10 @@ def main():
     # Filter tests
     tester.test_anime_list_year_filter()
     tester.test_anime_list_anime_kind_filter()
+    
+    # NEW: Test deletion functionality (should be last)
+    tester.test_remove_from_favorites()
+    tester.test_remove_from_history()
 
     # Print final results
     print("\n" + "=" * 50)
